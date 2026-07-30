@@ -1,0 +1,32 @@
+# Reference deployment for MODE=agent, run on a remote host that master pulls backups
+# from (e.g. a NAS or spare machine). Deploy this as its own separate stack on that host,
+# not alongside master's own docker-compose.yml.
+#
+# SECURITY: the published port below must only ever be reachable via Tailscale or the
+# LAN, never a genuinely public-facing host, matching the homelab's "admin/infrastructure
+# tools never bound wider than LAN or Tailscale" principle. Agent mode is an even more
+# sensitive target than master's own UI (Docker socket access, plus arbitrary
+# backup/restore execution on request), the AGENT_TOKEN gate alone should not be treated
+# as the only line of defense.
+#
+# Before starting: generate a token (e.g. `openssl rand -hex 32`), set it below, and
+# enter the exact same value in master's own /agents "Add agent" form.
+services:
+  savepoint-agent:
+    build: .
+    image: savepoint:latest
+    environment:
+      MODE: agent
+      AGENT_TOKEN: ${AGENT_TOKEN}
+      TZ: Europe/Prague
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    memswap_limit: 768M
+    restart: unless-stopped

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Discovered candidates</h1>
+<p><small>Running containers matched against Postgres/MySQL/MariaDB image names. Nothing here is added automatically, confirm each one you want tracked.</small></p>
+
+<form method="get" action="/discover">
+  <p>
+    <label for="agent_id">Host</label>
+    <select id="agent_id" name="agent_id" onchange="this.form.submit()">
+      <option value="" {% if not selected_agent_id %}selected{% endif %}>Local</option>
+      {% for a in agents %}
+      <option value="{{ a['id'] }}" {% if selected_agent_id == a['id'] %}selected{% endif %}>{{ a['name'] }}</option>
+      {% endfor %}
+    </select>
+  </p>
+</form>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if not candidates %}
+<p>No new candidates found. Containers already tracked as targets, or not matching a known image, are not shown.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Container</th><th>Image</th><th>Engine</th><th>DB user</th><th>DB name</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for c in candidates %}
+    <tr>
+      <td class="mono">{{ c['container_name'] }}</td>
+      <td class="mono">{{ c['image'] }}</td>
+      <td class="mono">{{ c['engine'] }}</td>
+      <td class="mono">{{ c['db_user'] }}</td>
+      <td class="mono">{{ c['db_name'] }}</td>
+      <td>
+        <form method="post" action="/targets" style="display:inline">
+          <input type="hidden" name="name" value="{{ c['container_name'] }}">
+          <input type="hidden" name="engine" value="{{ c['engine'] }}">
+          <input type="hidden" name="container_name" value="{{ c['container_name'] }}">
+          <input type="hidden" name="db_user" value="{{ c['db_user'] }}">
+          <input type="hidden" name="db_name" value="{{ c['db_name'] }}">
+          {% if selected_agent_id %}<input type="hidden" name="agent_id" value="{{ selected_agent_id }}">{% endif %}
+          <button type="submit">Add</button>
+        </form>
+        <a href="/targets/add?engine={{ c['engine'] | urlencode }}&container_name={{ c['container_name'] | urlencode }}&db_user={{ c['db_user'] | urlencode }}&db_name={{ c['db_name'] | urlencode }}{% if selected_agent_id %}&agent_id={{ selected_agent_id }}{% endif %}">review first</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

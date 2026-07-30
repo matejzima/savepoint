@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Agents</h1>
+<p><small>Remote hosts running Savepoint in <code>MODE=agent</code>. Master calls each agent's token-authed API to discover, back up, and restore databases on that host, no UI runs on the agent itself.</small></p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+{% if not agents %}
+<p>No agents registered yet.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Base URL</th><th>Offsite</th><th>Last contact</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for a in agents %}
+    <tr>
+      <td>{{ a['name'] }}</td>
+      <td class="mono">{{ a['base_url'] }}</td>
+      <td>{% if a['offsite'] %}<span class="chip">offsite</span>{% endif %}</td>
+      <td class="mono">{{ a['last_contact_at'] | local_time or '-' }}</td>
+      <td>
+        {% if a['last_contact_status'] %}
+        <span class="pill pill-{{ 'success' if a['last_contact_status'] == 'ok' else 'failure' }}">{{ a['last_contact_status'] }}</span>
+        {% if a['last_contact_error'] %}<span class="error">{{ a['last_contact_error'] }}</span>{% endif %}
+        {% else %}
+        <span class="pill pill-none">never contacted</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/agents/{{ a['id'] }}/health-check" style="display:inline">
+          <button type="submit">Test connection</button>
+        </form>
+        <form method="post" action="/agents/{{ a['id'] }}/delete" style="display:inline">
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="6">
+        <details>
+          <summary><small>Edit</small></summary>
+          <form method="post" action="/agents/{{ a['id'] }}/edit">
+            <p>
+              <label for="edit_name_{{ a['id'] }}">Name</label>
+              <input type="text" id="edit_name_{{ a['id'] }}" name="name" value="{{ a['name'] }}" required>
+            </p>
+            <p>
+              <label for="edit_base_url_{{ a['id'] }}">Base URL</label>
+              <input type="text" id="edit_base_url_{{ a['id'] }}" name="base_url" value="{{ a['base_url'] }}" required>
+            </p>
+            <p>
+              <label for="edit_token_{{ a['id'] }}">Token</label>
+              <input type="text" id="edit_token_{{ a['id'] }}" name="token" value="{{ a['token'] }}" required>
+            </p>
+            <p>
+              <label>
+                <input type="checkbox" name="offsite" value="true" {% if a['offsite'] %}checked{% endif %}>
+                Offsite (skip automatic scheduled/window backups, manual "run backup now" still works)
+              </label>
+            </p>
+            <button type="submit">Save</button>
+          </form>
+        </details>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Add agent</h2>
+<form method="post" action="/agents">
+  <p>
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" required>
+  </p>
+  <p>
+    <label for="base_url">Base URL</label>
+    <input type="text" id="base_url" name="base_url" placeholder="http://100.x.x.x:8000" required>
+    <br><small>Reachable over Tailscale/LAN, matching that agent's own MODE=agent deployment.</small>
+  </p>
+  <p>
+    <label for="token">Token</label>
+    <input type="text" id="token" name="token" required>
+    <br><small>Must match that agent's own AGENT_TOKEN environment variable exactly.</small>
+  </p>
+  <p>
+    <label>
+      <input type="checkbox" name="offsite" value="true">
+      Offsite (skip automatic scheduled/window backups, manual "run backup now" still works)
+    </label>
+    <br><small>For a host reached over WAN rather than LAN, so nothing silently drags a dump across the link on a timer.</small>
+  </p>
+  <button type="submit">Add agent</button>
+</form>
+{% endblock %}

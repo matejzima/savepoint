@@ -1,0 +1,42 @@
+# Savepoint - Phase 2 Build Summary
+
+Built against [phase-2-plan.md](phase-2-plan.md) (revised to add `backup_runs.method`, cleared to build).
+
+## What was built
+
+- **Schema**: `targets` gained a nullable `file_path` column and `db_user`/`db_name` are now `NOT NULL DEFAULT ''`; `backup_runs` gained a nullable `method` column. `app/db.py::init_db()` runs a guarded `ALTER TABLE ... ADD COLUMN` for each, gated on `PRAGMA table_info(...)`, so an existing Phase 1 state db migrates in place on next start.
+- **Adapter registry** (`app/adapters/__init__.py`): `ADAPTERS = {"postgres": ..., "mysql": ..., "mariadb": ..., "sqlite": ...}`, keyed by `targets.engine`. `routes/targets.py::run_backup` now dispatches through this instead of a hardcoded `PostgresAdapter()`.
+- **Postgres discovery**: `PostgresAdapter.discover()`/`default_connection_info()` implemented (were `NotImplementedError` stubs), matching image name for `"postgres"` and pre-filling from `POSTGRES_USER`/`POSTGRES_DB`.
+- **MySQL/MariaDB** (`app/adapters/mysql.py`): shared `_MySQLFamilyAdapter` base, two thin subclasses differing only in image keyword and env var candidate lists. Password resolution tries `MARIADB_*`/`MYSQL_*` variants in order (root vs non-root user), fails with every candidate name listed if none are set. Dump via `mysqldump --user <user> <db>` with the password passed through `MYSQL_PWD` (never in argv), `.sql` output.
+- **SQLite** (`app/adapters/sqlite.py`): tries `sqlite3 <path> ".backup <tmp>"` inside the container first (live-consistent copy via SQLite's own backup API), pulls the result out with `docker_client.get_archive_file()`, cleans up the temp file, and records `method="live"`. Falls back to a raw `get_archive_file()` copy of the original path if `sqlite3` isn't available (catches `APIError`, explicitly re-raising `NotFound` first since `NotFound` is a subclass of `APIError` in docker-py and would otherwise be misread as "binary missing" instead of "container gone", caught this via a failing test, see below) or the `.backup` command exits non-zero, and records `method="raw-copy"`.
+- **`method` surfaced end to end**: `BackupResult.method` -> `finish_backup_run(..., method=...)` -> `backup_runs.method` -> `partials/history_row.html` renders a "raw copy, not live-consistent" tag next to any row where `method == "raw-copy"`. Postgres/MySQL/MariaDB runs always have `method = NULL` and show nothing extra.
+- **Discovery route** (`GET /discover`, `app/routes/discover.py`): lists running containers, does a full inspect per container (needed for `Config.Env`, since `containers.list()` only returns list-summary attrs without env vars), matches against Postgres/MySQL/MariaDB adapters, excludes anything already in `targets`. SQLite is never matched (`SQLiteAdapter.discover()` always returns `False`), consistent with manual-add-only this phase.
+- **One shared create-target path**: `POST /targets` gained an `engine` field (defaults to `postgres` for backward compatibility with the Phase 1 form) and per-engine validation (`db_user`+`db_name` for SQL engines, `file_path` for sqlite, checked to actually exist in the container via `docker_client.path_exists_in_container()`). `GET /targets/add` accepts optional query-string pre-fill. Discovery's one-click "Add" is a plain per-row `<form>` posting straight to `/targets`; its "review first" link goes to the pre-filled add form. No separate discovery-side create logic exists.
+- **UI**: `index.html` gained an Engine column, `targets/add.html` gained the engine `<select>` and `file_path` field (all fields always visible, server-side validation is authoritative, no show/hide JS), `targets/detail.html` shows `file_path` instead of `db_user`/`db_name` for sqlite targets, `discover.html` is new, `base.html` gained a "Discover" nav link and the `.tag-warning` style.
+- Tests: `tests/test_mysql_adapter.py` (8 cases covering both `MySQLAdapter`/`MariaDBAdapter`, root vs non-root password resolution order, discover/default_connection_info) and `tests/test_sqlite_adapter.py` (6 cases covering the live path, both raw-copy fallback triggers, and the container-not-found / file-not-found failure paths), all mocked, no live Docker.
+
+## Bug caught during testing
+
+The first version of `SQLiteAdapter._try_live_backup` caught `except APIError` around the `sqlite3 .backup` exec call to detect "the binary isn't in this container, fall back." Since `docker.errors.NotFound` is a subclass of `APIError`, a container that had vanished entirely was silently treated as "sqlite3 missing" and fell through to a raw-copy attempt against a target that no longer existed, instead of surfacing "container not found." A test (`test_backup_fails_when_container_not_found`) caught this immediately, it failed with a `FileNotFoundError` from `os.path.getsize()` on a file that was never written. Fixed by re-raising `NotFound` explicitly before the broader `APIError` catch.
+
+## Post-build fix: mariadb-dump vs mysqldump
+
+Real-world verification against a `mariadb:11` container found backups failing with exit code 127 (command not found): recent official MariaDB images (10.6+) deprecate, and in newer versions remove, the `mysqldump` compatibility symlink in favor of `mariadb-dump`. `_MySQLFamilyAdapter` previously hardcoded `"mysqldump"` once in the shared `backup()` method. Fixed by adding a `dump_binary` class attribute set per subclass (`MySQLAdapter.dump_binary = "mysqldump"`, `MariaDBAdapter.dump_binary = "mariadb-dump"`) and used in place of the literal string, both in the constructed command and the exit-code error message. No runtime auto-detection was added, this is a predictable per-image-family difference, not something worth added complexity to detect dynamically. `tests/test_mysql_adapter.py` gained a parametrized test (`test_dump_command_uses_correct_binary_per_adapter`) asserting the correct binary name in the constructed command for each adapter; full suite re-run at 20/20 passing.
+
+## Testing performed
+
+- `pytest tests/` - 20/20 pass (4 existing Postgres + 10 MySQL/MariaDB + 6 SQLite).
+- Booted the app against a hand-built Phase-1-shaped state db (no `file_path`/`method` columns, one pre-existing Postgres target and history row) and confirmed: both columns appear after startup, the pre-existing target and run are untouched, `GET /` and `GET /targets/add` both render correctly.
+- Full route-level dry run with `docker_client` mocked (no live Docker daemon in this dev environment):
+  - `GET /discover` against three mocked containers (a Postgres-image, a MySQL-image, and an unrelated nginx container): only the two DB-image containers surfaced as candidates, with pre-filled user/db values; the nginx container did not appear.
+  - One-click "Add" for the discovered MySQL candidate: `303` redirect, target created.
+  - Manual add for Postgres (omitting the `engine` field to confirm the Phase 1 form shape still works via the default).
+  - SQLite add rejected for a nonexistent file (`400`, clear error) and accepted for a valid one (`303`).
+  - Ran backups for the Postgres, MySQL, and SQLite (both live and raw-copy fallback) targets: all recorded `success`; the live SQLite run showed no tag, the raw-copy run showed "raw copy, not live-consistent"; both appeared side by side on the same target's detail page, visibly distinguishable, not just both marked `success`.
+
+## Not tested here (needs the real homelab Docker host)
+
+No Docker daemon is available in this dev environment for a live pass. Before considering Phase 2 done, run the verification steps in `phase-2-plan.md` against real Postgres, MySQL, and MariaDB containers, and a real app container holding a SQLite file (ideally one with `sqlite3` installed and one without, to exercise both the live and raw-copy paths for real). In particular:
+1. Confirm the env var candidate lists actually match whatever MySQL/MariaDB images are deployed in the homelab (the plan flags this as unverified, per the open question in `03-Proposed-Architecture.md`).
+2. Confirm a real `.backup`-produced file actually opens and reads correctly, and that a real raw-copy file, taken from a genuinely idle (not actively written) SQLite file, also opens correctly. The corruption risk the `method` tag is warning about was not (and cannot be) exercised by mocked tests, it only shows up against a real, actively-written file.
+3. Confirm discovery's "review first" edit-then-submit path against a real UI session (only the direct HTTP flow was exercised here).

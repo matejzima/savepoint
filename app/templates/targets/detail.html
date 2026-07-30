@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ target['name'] }}</h1>
+
+<p><small>Host: <span class="mono">{{ target['agent_name'] or 'local' }}</span>{% if target['agent_offsite'] %} <span class="chip">offsite</span>{% endif %}</small></p>
+
+{% if not target['enabled'] %}
+<p class="notice">This target is disabled. Scheduled and window-triggered backups are paused, manual runs still work.</p>
+{% endif %}
+
+<h2>Connection</h2>
+{% if connection_error %}<p class="error">{{ connection_error }}</p>{% endif %}
+<form method="post" action="/targets/{{ target['id'] }}/edit">
+  <p>
+    <label>Engine</label>
+    <span class="mono">{{ target['engine'] }}</span>
+    <br><small>Not editable after creation, delete and re-add the target if the engine needs to change.</small>
+  </p>
+  <p>
+    <label for="container_name">Container name</label>
+    <input type="text" id="container_name" name="container_name" value="{{ target['container_name'] }}" required>
+  </p>
+  {% if target['engine'] == 'sqlite' %}
+  <p>
+    <label for="file_path">File path</label>
+    <input type="text" id="file_path" name="file_path" value="{{ target['file_path'] or '' }}">
+  </p>
+  {% else %}
+  <p>
+    <label for="db_user">DB user</label>
+    <input type="text" id="db_user" name="db_user" value="{{ target['db_user'] }}">
+  </p>
+  <p>
+    <label for="db_name">DB name</label>
+    <input type="text" id="db_name" name="db_name" value="{{ target['db_name'] }}">
+  </p>
+  {% endif %}
+  <button type="submit">Save connection details</button>
+</form>
+
+<p>
+  <button
+    hx-post="/targets/{{ target['id'] }}/run"
+    hx-target="#history-table"
+    hx-swap="outerHTML"
+    hx-indicator="#run-indicator"
+    hx-disabled-elt="this"
+  >
+    Run backup now
+  </button>
+  <span id="run-indicator" class="htmx-indicator">running...</span>
+
+  <form method="post" action="/targets/{{ target['id'] }}/toggle-enabled" style="display:inline">
+    <button type="submit">{% if target['enabled'] %}Disable target{% else %}Enable target{% endif %}</button>
+  </form>
+</p>
+
+{% include "partials/history_row.html" %}
+
+<h2>Schedule</h2>
+{% if schedule_error %}<p class="error">{{ schedule_error }}</p>{% endif %}
+<form method="post" action="/targets/{{ target['id'] }}/schedule">
+  <p>
+    <label>
+      <input type="radio" name="mode" value="window" id="schedule-mode-window" {% if not target['schedule_cron'] %}checked{% endif %}>
+      Join the shared backup window (recommended)
+    </label>
+  </p>
+  <p>
+    <label>
+      <input type="radio" name="mode" value="cron" id="schedule-mode-cron" {% if target['schedule_cron'] %}checked{% endif %}>
+      Use a specific cron schedule instead
+    </label>
+    <br>
+    <input type="text" name="schedule_cron" id="schedule-cron-input" value="{{ target['schedule_cron'] or '' }}" placeholder="0 3 * * *">
+    <br><small class="warning">This bypasses the shared window's concurrency limit and runs independently, use only if this target needs a specific time.</small>
+  </p>
+  <button type="submit">Save schedule</button>
+</form>
+<script>
+  (function () {
+    var cronInput = document.getElementById("schedule-cron-input");
+    var cronRadio = document.getElementById("schedule-mode-cron");
+    var windowRadio = document.getElementById("schedule-mode-window");
+
+    cronInput.addEventListener("input", function () {
+      cronRadio.checked = true;
+    });
+
+    windowRadio.addEventListener("change", function () {
+      if (windowRadio.checked) {
+        cronInput.value = "";
+      }
+    });
+  })();
+</script>
+{% set inactive_reason = 'target disabled' if not target['enabled'] else ('agent flagged offsite' if target['agent_offsite'] else none) %}
+<p>
+  <small>
+    Currently:
+    {% if target['schedule_cron'] %}
+    cron <code>{{ target['schedule_cron'] }}</code>
+    {% elif target['in_window'] %}
+    shared window member
+    {% else %}
+    manual only, not scheduled
+    {% endif %}
+    {% if target['schedule_cron'] or target['in_window'] %}
+      {% if next_run %}
+      (next run: {{ next_run | local_time }})
+      {% elif inactive_reason %}
+      (not active: {{ inactive_reason }})
+      {% endif %}
+    {% endif %}
+  </small>
+</p>
+
+<h2>Retention</h2>
+{% if retention_error %}<p class="error">{{ retention_error }}</p>{% endif %}
+{% if not target['retention_confirmed'] %}
+<p class="notice">Not yet active for this target, save to enable pruning (using these defaults if left unchanged).</p>
+{% endif %}
+<form method="post" action="/targets/{{ target['id'] }}/retention">
+  <p>
+    <label for="retention_daily">Daily</label>
+    <input type="text" id="retention_daily" name="retention_daily" value="{{ target['retention_daily'] }}">
+  </p>
+  <p>
+    <label for="retention_weekly">Weekly</label>
+    <input type="text" id="retention_weekly" name="retention_weekly" value="{{ target['retention_weekly'] }}">
+  </p>
+  <p>
+    <label for="retention_monthly">Monthly</label>
+    <input type="text" id="retention_monthly" name="retention_monthly" value="{{ target['retention_monthly'] }}">
+    <br><small>How many backups to keep per tier. A backup is deleted once it no longer holds any tier tag.</small>
+  </p>
+  <button type="submit">Save retention</button>
+</form>
+
+<h2>Restore</h2>
+{% if not eligible_backups %}
+<p>No eligible backups to restore from yet.</p>
+{% else %}
+<form
+  hx-post="/targets/{{ target['id'] }}/restore"
+  hx-target="#restore-history-table"
+  hx-swap="outerHTML"
+  hx-indicator="#restore-indicator"
+  hx-disabled-elt="button[type=submit]"
+>
+  <p>
+    <label for="backup_run_id">Restore from</label>
+    <select id="backup_run_id" name="backup_run_id" required>
+      {% for b in eligible_backups %}
+      <option value="{{ b['id'] }}">
+        {{ b['started_at'] | local_time }}{% if b['method'] == 'raw-copy' %} (raw copy, not live-consistent){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+  </p>
+
+  {% if target['engine'] == 'sqlite' %}
+  <p>
+    <label>
+      <input type="checkbox" name="stop_container" value="true" checked>
+      Stop the container during restore (recommended)
+    </label>
+    <br><small>Avoids the app holding an open handle mid-write during the overwrite. Uncheck only if you have a specific reason not to stop it.</small>
+  </p>
+  {% else %}
+  <p class="notice">This will overwrite the live database. Make sure nothing else is actively using it during the restore.</p>
+  {% endif %}
+
+  <p>
+    <label for="restore_confirm_name">Type "{{ target['name'] }}" to confirm</label>
+    <input type="text" id="restore_confirm_name" name="confirm_name" placeholder="{{ target['name'] }}">
+  </p>
+
+  <button type="submit">Restore</button>
+  <span id="restore-indicator" class="htmx-indicator">restoring...</span>
+</form>
+{% endif %}
+
+{% include "partials/restore_history.html" %}
+
+<h2>Delete target</h2>
+{% if delete_error %}<p class="error">{{ delete_error }}</p>{% endif %}
+<p>
+  <small>
+    {% if file_count %}
+    This target has {{ file_count }} backup file(s) currently on disk.
+    {% else %}
+    This target has no backup files currently on disk.
+    {% endif %}
+  </small>
+</p>
+<form method="post" action="/targets/{{ target['id'] }}/delete">
+  <p>
+    <label>
+      <input type="checkbox" name="delete_files" value="true">
+      Also delete {{ file_count }} backup file(s) from disk
+    </label>
+    <br><small>Left unchecked, files stay on disk under their existing folder, only Savepoint's record of this target is removed.</small>
+  </p>
+  <p>
+    <label for="confirm_name">Type "{{ target['name'] }}" to confirm</label>
+    <input type="text" id="confirm_name" name="confirm_name" placeholder="{{ target['name'] }}">
+  </p>
+  <button type="submit">Delete target</button>
+</form>
+{% endblock %}

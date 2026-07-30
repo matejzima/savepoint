@@ -1,0 +1,31 @@
+{% set has_active = restore_runs | selectattr('status', 'in', ['running']) | list | length > 0 %}
+<div
+  id="restore-history-table"
+  {% if has_active %}
+  hx-get="/targets/{{ target['id'] }}/restore-history"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  {% endif %}
+>
+  {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+  <table>
+    <thead>
+      <tr><th>Started</th><th>Finished</th><th>Status</th><th>From backup</th><th>Stopped container</th><th>Error</th></tr>
+    </thead>
+    <tbody>
+      {% for r in restore_runs %}
+      <tr{% if r['status'] == 'failure' %} class="row-failure"{% endif %}>
+        <td class="mono">{{ r['started_at'] | local_time }}</td>
+        <td class="mono">{{ r['finished_at'] | local_time or '-' }}</td>
+        <td><span class="pill pill-{{ r['status'] }}">{{ r['status'] }}</span></td>
+        <td class="mono">{{ r['backup_started_at'] | local_time }}</td>
+        <td class="mono">{{ 'yes' if r['stopped_container'] else 'no' }}</td>
+        <td class="error">{{ r['error_message'] or '' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not restore_runs %}
+      <tr><td colspan="6">No restores yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>

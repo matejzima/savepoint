@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Targets</h1>
+
+{% set failing = targets | selectattr('latest_run_status', 'equalto', 'failure') | list %}
+{% set unreachable_agents = agents | selectattr('last_contact_status', 'equalto', 'error') | list %}
+
+<p>
+  <small>
+    {{ targets | length }} target{{ '' if targets | length == 1 else 's' }}{% if agents %}, {{ agents | length }} agent{{ '' if agents | length == 1 else 's' }}{% endif %}{% if next_window %} &middot; next backup window: {{ next_window | local_time }}{% endif %}
+  </small>
+</p>
+
+{% if failing %}
+<p class="error">
+  Currently failing:
+  {% for t in failing %}<a href="/targets/{{ t['id'] }}">{{ t['name'] }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+</p>
+{% endif %}
+
+{% if unreachable_agents %}
+<p class="error">
+  {{ unreachable_agents | length }} agent{{ '' if unreachable_agents | length == 1 else 's' }} unreachable:
+  {% for a in unreachable_agents %}<a href="/agents">{{ a['name'] }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+</p>
+{% endif %}
+
+{% if not targets %}
+<p>No targets yet. <a href="/targets/add">Add one</a>.</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Engine</th><th>Container</th><th>Last run</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for t in targets %}
+    <tr>
+      <td>
+        <a href="/targets/{{ t['id'] }}">{{ t['name'] }}</a>
+        {% if not t['enabled'] %}<span class="chip">disabled</span>{% endif %}
+      </td>
+      <td class="mono">{{ t['engine'] }}</td>
+      <td class="mono">{{ t['container_name'] }}</td>
+      <td class="mono">{{ t['latest_run_started_at'] | local_time or '-' }}</td>
+      <td>
+        {% if t['latest_run_status'] %}
+        <span class="pill pill-{{ t['latest_run_status'] }}">{{ t['latest_run_status'] }}</span>
+        {% else %}
+        <span class="pill pill-none">never run</span>
+        {% endif %}
+      </td>
+      <td><a href="/targets/{{ t['id'] }}">details</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

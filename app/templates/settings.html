@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Backup window settings</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/settings">
+  <p>
+    <label for="window_start">Window start (HH:MM)</label>
+    <input type="text" id="window_start" name="window_start" value="{{ window_start }}" placeholder="02:00">
+  </p>
+  <p>
+    <label for="window_duration_minutes">Duration (minutes)</label>
+    <input type="text" id="window_duration_minutes" name="window_duration_minutes" value="{{ window_duration_minutes }}">
+    <br><small>Advisory only. A job already running when the window closes is allowed to finish, it is not killed. Members still waiting for a free slot when the window closes are marked skipped.</small>
+  </p>
+  <p>
+    <label for="window_concurrency">Concurrency cap</label>
+    <input type="text" id="window_concurrency" name="window_concurrency" value="{{ window_concurrency }}">
+    <br><small>Maximum number of window-member backups that run at the same time.</small>
+  </p>
+  <button type="submit">Save</button>
+</form>
+
+<h2>Current window members</h2>
+{% if not members %}
+<p>No targets are currently members of the shared window.</p>
+{% else %}
+<table>
+  <thead><tr><th>Name</th><th>Engine</th></tr></thead>
+  <tbody>
+    {% for t in members %}
+    <tr>
+      <td><a href="/targets/{{ t['id'] }}">{{ t['name'] }}</a></td>
+      <td class="mono">{{ t['engine'] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<p><small>Window membership is set per target, on that target's own detail page.</small></p>
+{% endblock %}

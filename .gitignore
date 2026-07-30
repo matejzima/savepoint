@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+*.dump
+.DS_Store
+.claude/settings.local.json
+.env
+.vscode/

@@ -1,0 +1,40 @@
+{% set has_active = runs | selectattr('status', 'in', ['queued', 'running']) | list | length > 0 %}
+<div
+  id="history-table"
+  {% if has_active %}
+  hx-get="/targets/{{ target['id'] }}/history"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  {% endif %}
+>
+  {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+  <table>
+    <thead>
+      <tr><th>Started</th><th>Finished</th><th>Status</th><th>Trigger</th><th>File</th><th>Size</th><th>Error</th></tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr{% if r['status'] == 'failure' %} class="row-failure"{% endif %}>
+        <td class="mono">{{ r['started_at'] | local_time }}</td>
+        <td class="mono">{{ r['finished_at'] | local_time or '-' }}</td>
+        <td>
+          <span class="pill pill-{{ r['status'] }}">{{ r['status'] }}</span>
+          {% if r['method'] == 'raw-copy' %}<span class="tag-warning">raw copy, not live-consistent</span>{% endif %}
+          {% if r['status'] == 'success' %}
+          {% for tier in tags_by_run.get(r['id'], []) %}
+          <span class="chip">{{ tier }}</span>
+          {% endfor %}
+          {% endif %}
+        </td>
+        <td class="mono">{{ r['triggered_by'] or '-' }}</td>
+        <td class="mono">{{ r['file_path'] or '-' }}</td>
+        <td class="mono">{{ r['file_size_bytes'] or '-' }}</td>
+        <td class="error">{{ r['error_message'] or '' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not runs %}
+      <tr><td colspan="7">No runs yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>

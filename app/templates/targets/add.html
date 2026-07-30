@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Add target</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/targets">
+  <p>
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{ form.get('name', '') }}" required>
+  </p>
+  <p>
+    <label for="engine">Engine</label>
+    <select id="engine" name="engine">
+      {% for e in ['postgres', 'mysql', 'mariadb', 'sqlite'] %}
+      <option value="{{ e }}" {% if form.get('engine', 'postgres') == e %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+  </p>
+  <p>
+    <label for="agent_id">Host</label>
+    <select id="agent_id" name="agent_id">
+      <option value="" {% if not form.get('agent_id') %}selected{% endif %}>Local</option>
+      {% for a in agents %}
+      <option value="{{ a['id'] }}" {% if form.get('agent_id') | string == a['id'] | string %}selected{% endif %}>{{ a['name'] }}</option>
+      {% endfor %}
+    </select>
+    <br><small>Which host's Docker socket the container name below refers to. Not editable after creation.</small>
+  </p>
+  <p>
+    <label for="container_name">Container name</label>
+    <input type="text" id="container_name" name="container_name" value="{{ form.get('container_name', '') }}" required>
+    <br><small>The database container (Postgres/MySQL/MariaDB), or the app container that owns the file (SQLite).</small>
+  </p>
+  <p>
+    <label for="db_user">DB user</label>
+    <input type="text" id="db_user" name="db_user" value="{{ form.get('db_user', '') }}">
+    <br><small>Required for Postgres, MySQL and MariaDB. Ignored for SQLite.</small>
+  </p>
+  <p>
+    <label for="db_name">DB name</label>
+    <input type="text" id="db_name" name="db_name" value="{{ form.get('db_name', '') }}">
+    <br><small>Required for Postgres, MySQL and MariaDB. Ignored for SQLite.</small>
+  </p>
+  <p>
+    <label for="file_path">File path</label>
+    <input type="text" id="file_path" name="file_path" value="{{ form.get('file_path', '') }}">
+    <br><small>Required for SQLite, the absolute path to the database file inside the container. Ignored for other engines.</small>
+  </p>
+  <p><em>Passwords are read from the container's own environment variables at backup time, they are never stored here.</em></p>
+  <button type="submit">Add</button>
+</form>
+{% endblock %}

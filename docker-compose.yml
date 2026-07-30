@@ -1,0 +1,29 @@
+services:
+  savepoint:
+    build: .
+    image: savepoint:latest
+    environment:
+      MODE: master
+      BACKUP_TARGET_DIR: /backup-target
+      STATE_DB_PATH: /data/savepoint.db
+      TZ: Europe/Prague
+      NTFY_URL: ${NTFY_URL:-}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+      FORWARD_AUTH_HEADER: ${FORWARD_AUTH_HEADER:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/savepoint/backups:/backup-target
+      - savepoint-data:/data
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    memswap_limit: 768M
+    restart: unless-stopped
+
+volumes:
+  savepoint-data:
