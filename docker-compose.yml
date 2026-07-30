@@ -1,7 +1,7 @@
 services:
   savepoint:
     build: .
-    image: savepoint:latest
+    image: ghcr.io/matejzima/savepoint:latest
     environment:
       MODE: master
       BACKUP_TARGET_DIR: /backup-target
