@@ -14,7 +14,7 @@
 services:
   savepoint-agent:
     build: .
-    image: savepoint:latest
+    image: ghcr.io/matejzima/savepoint:latest
     environment:
       MODE: agent
       AGENT_TOKEN: ${AGENT_TOKEN}
