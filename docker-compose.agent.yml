@@ -13,7 +13,6 @@
 # enter the exact same value in master's own /agents "Add agent" form.
 services:
   savepoint-agent:
-    build: .
     image: ghcr.io/matejzima/savepoint:latest
     environment:
       MODE: agent
