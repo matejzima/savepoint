@@ -1,6 +1,5 @@
 services:
   savepoint:
-    build: .
     image: ghcr.io/matejzima/savepoint:latest
     environment:
       MODE: master
